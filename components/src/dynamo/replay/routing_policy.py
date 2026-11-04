@@ -3,9 +3,9 @@
 
 """Worker-scoring policies for fixed-worker, offline aggregated replay.
 
-A fresh policy file is loaded once per replay. ``score(worker, ctx)`` returns a
+A fresh policy file is loaded once per replay. ``score(request, worker, ctx)`` returns a
 number; lower wins. ``uses_prefix_hits=True`` adds cached-prefix and potential
-prefill fields. Optional ``on_route(worker, ctx)`` runs once after assignment.
+prefill fields. Optional ``on_route(request, worker, ctx)`` runs once after assignment.
 Inputs are detached snapshots. Only past/current router observations are exposed;
 no actual future output length. Scores never advance the simulated clock.
 """
@@ -54,7 +54,7 @@ class ScoreWorkers:
         started = time.perf_counter()
         values = []
         for worker in view["workers"]:
-            value = self.score(dict(worker), copy.deepcopy(view))
+            value = self.score(*self.arguments(view, worker))
             if isinstance(value, bool) or not isinstance(value, numbers.Real):
                 raise TypeError(
                     f"score must return a number, got {type(value).__name__}"
@@ -66,6 +66,14 @@ class ScoreWorkers:
         self._scores = values
         return values
 
+    @staticmethod
+    def arguments(view, worker):
+        ctx = copy.deepcopy(view)
+        request = ctx.pop("request")
+        for name in ("ttft", "itl", "e2e"):
+            ctx[f"slo_{name}_ms"] = ctx.pop(f"sla_{name}_ms")
+        return request, dict(worker), ctx
+
     def committed(self, view, index):
         worker = view["workers"][index]
         key = f"{worker['worker_id']}:{worker['dp_rank']}"
@@ -73,10 +81,12 @@ class ScoreWorkers:
         if self.decision_log is not None:
             # JSON has no infinity: keep the score's explicit string representation.
             scores = [v if math.isfinite(v) else str(v) for v in self._scores]
+            request, _, ctx = self.arguments(view, worker)
             self.decision_log.write(
                 json.dumps(
                     dict(
-                        view,
+                        request=request,
+                        ctx=ctx,
                         scores=scores,
                         chosen_worker_id=worker["worker_id"],
                         chosen_dp_rank=worker["dp_rank"],
@@ -86,5 +96,5 @@ class ScoreWorkers:
             )
         if self.on_route is not None:
             started = time.perf_counter()
-            self.on_route(dict(worker), copy.deepcopy(view))
+            self.on_route(*self.arguments(view, worker))
             self.stats["seconds"] += time.perf_counter() - started
