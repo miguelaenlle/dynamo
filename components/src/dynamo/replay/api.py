@@ -114,8 +114,8 @@ def run_trace_replay(
     multi-worker runtime to the last event at or before the cap), and
     ``max_sim_time_ms`` stops at the first event past the cap.
 
-    ``routing_policy`` is a Python module/path with ``score(worker, ctx)`` and
-    optional ``on_route(worker, ctx)``. It replaces worker selection, using KV
+    ``routing_policy`` is a Python module/path with ``score(request, worker, ctx)`` and
+    optional ``on_route(request, worker, ctx)``. It replaces worker selection, using KV
     placement for tracking. Fixed-worker offline aggregated Mooncake replay,
     DP=1, without router queues, planner, concurrency or aic_perf_config only.
     ``routing_policy_log`` records pre-assignment snapshots, scores and destination.
@@ -189,7 +189,9 @@ def run_trace_replay(
         if routing_policy is not None:
             log = None
             if routing_policy_log is not None:
-                log = stack.enter_context(open(routing_policy_log, "w", encoding="utf-8"))
+                log = stack.enter_context(
+                    open(routing_policy_log, "w", encoding="utf-8")
+                )
             routing = ScoreWorkers(routing_policy, log)
         adapter = None
         if planner_config is not None:
